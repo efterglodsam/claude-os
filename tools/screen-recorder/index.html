@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skärminspelare</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1b1d21; --card:#fff; --accent:#d93025; --muted:#6b7280; --border:#e2e5ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --fg:#e8eaed; --card:#1d2025; --muted:#9aa0a6; --border:#2c3037; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:12px; }
+  label { display:flex; gap:6px; align-items:center; font-size:.9rem; }
+  button { font:inherit; padding:10px 18px; border-radius:8px; border:1px solid var(--border);
+           background:var(--card); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  #timer { font-variant-numeric: tabular-nums; font-size:1.2rem; color:var(--muted); }
+  #timer.rec { color:var(--accent); }
+  video { width:100%; border-radius:8px; background:#000; margin-top:12px; max-height:60vh; }
+  #status { color:var(--muted); font-size:.9rem; min-height:1.2em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Skärminspelare</h1>
+  <div class="card">
+    <div class="row">
+      <label><input type="checkbox" id="sysAudio" checked> Systemljud</label>
+      <label><input type="checkbox" id="mic"> Mikrofon</label>
+    </div>
+    <div class="row">
+      <button id="start" class="primary">● Starta inspelning</button>
+      <button id="pause" disabled>Pausa</button>
+      <button id="stop" disabled>■ Stoppa</button>
+      <span id="timer">00:00</span>
+    </div>
+    <div id="status"></div>
+    <video id="preview" controls playsinline hidden></video>
+    <div class="row" style="margin-top:12px">
+      <button id="download" disabled>Ladda ner</button>
+    </div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const startBtn = $('start'), pauseBtn = $('pause'), stopBtn = $('stop'),
+      dlBtn = $('download'), preview = $('preview'), timerEl = $('timer'), statusEl = $('status');
+
+let recorder, chunks = [], streams = [], blobUrl = null, mime = '';
+let tick, elapsed = 0, lastStart = 0;
+
+const fmt = s => String(Math.floor(s/60)).padStart(2,'0') + ':' + String(Math.floor(s%60)).padStart(2,'0');
+const now = () => (elapsed + (lastStart ? (Date.now() - lastStart)/1000 : 0));
+
+function pickMime() {
+  const types = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+  return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+}
+
+function cleanup() {
+  streams.forEach(s => s.getTracks().forEach(t => t.stop()));
+  streams = [];
+  clearInterval(tick);
+  lastStart = 0;
+  timerEl.classList.remove('rec');
+  startBtn.disabled = false;
+  pauseBtn.disabled = stopBtn.disabled = true;
+  pauseBtn.textContent = 'Pausa';
+}
+
+startBtn.onclick = async () => {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    statusEl.textContent = 'Din webbläsare stöder inte skärminspelning.';
+    return;
+  }
+  try {
+    const screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: $('sysAudio').checked });
+    streams.push(screen);
+    const tracks = [...screen.getVideoTracks()];
+    const audioSources = [];
+    if (screen.getAudioTracks().length) audioSources.push(screen);
+    if ($('mic').checked) {
+      try {
+        const m = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streams.push(m); audioSources.push(m);
+      } catch { statusEl.textContent = 'Mikrofon nekades – spelar in utan.'; }
+    }
+    // Mixa flera ljudkällor till ett spår
+    if (audioSources.length > 1) {
+      const ctx = new AudioContext(), dest = ctx.createMediaStreamDestination();
+      audioSources.forEach(s => ctx.createMediaStreamSource(s).connect(dest));
+      tracks.push(...dest.stream.getAudioTracks());
+    } else if (audioSources.length === 1) {
+      tracks.push(...audioSources[0].getAudioTracks());
+    }
+
+    mime = pickMime();
+    chunks = [];
+    recorder = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      blobUrl = URL.createObjectURL(blob);
+      preview.src = blobUrl; preview.hidden = false;
+      dlBtn.disabled = false;
+      statusEl.textContent = `Klar – ${fmt(elapsed)} (${(blob.size/1048576).toFixed(1)} MB)`;
+      cleanup();
+    };
+    // Stoppa om användaren avslutar delningen via webbläsarens egen knapp
+    screen.getVideoTracks()[0].onended = () => recorder.state !== 'inactive' && stopRec();
+
+    elapsed = 0; lastStart = Date.now();
+    recorder.start(1000);
+    tick = setInterval(() => timerEl.textContent = fmt(now()), 250);
+    timerEl.classList.add('rec');
+    startBtn.disabled = true; pauseBtn.disabled = stopBtn.disabled = false; dlBtn.disabled = true;
+    statusEl.textContent = 'Spelar in…';
+  } catch (err) {
+    statusEl.textContent = err.name === 'NotAllowedError' ? 'Avbrutet – ingen skärm vald.' : 'Fel: ' + err.message;
+    cleanup();
+  }
+};
+
+function stopRec() {
+  elapsed = now(); lastStart = 0;
+  recorder.stop();
+}
+stopBtn.onclick = stopRec;
+
+pauseBtn.onclick = () => {
+  if (recorder.state === 'recording') {
+    recorder.pause(); elapsed = now(); lastStart = 0;
+    pauseBtn.textContent = 'Återuppta'; statusEl.textContent = 'Pausad';
+  } else if (recorder.state === 'paused') {
+    recorder.resume(); lastStart = Date.now();
+    pauseBtn.textContent = 'Pausa'; statusEl.textContent = 'Spelar in…';
+  }
+};
+
+dlBtn.onclick = () => {
+  const ext = (recorder?.mimeType || mime).includes('mp4') ? 'mp4' : 'webm';
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = `inspelning-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.${ext}`;
+  a.click();
+};
+</script>
+</body>
+</html>

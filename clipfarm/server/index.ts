@@ -120,7 +120,16 @@ app.post('/api/rules/sync', async (_req, res) => {
 
 app.get('/api/stats', async (_req, res) => res.json(await getStats()));
 
-app.listen(config.port, () => {
+app.listen(config.port, (err?: Error) => {
+  if (err) {
+    const inUse = (err as NodeJS.ErrnoException).code === 'EADDRINUSE';
+    console.error(
+      inUse
+        ? `Port ${config.port} används redan – troligen kör backend redan i ett annat fönster. Stäng det, eller starta på annan port med: set PORT=8788 (cmd) / $env:PORT=8788 (PowerShell). Kör då även vite med samma PORT.`
+        : `Servern kunde inte starta: ${err.message}`,
+    );
+    process.exit(1);
+  }
   save();
   pump();
   console.log(`Clipfarm-server på http://localhost:${config.port}  (modell: ${config.model}${config.mock ? ', MOCK' : ''})`);

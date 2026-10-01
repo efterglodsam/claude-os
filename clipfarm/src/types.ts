@@ -10,6 +10,8 @@ export interface Business {
   done: number;
   units: number;
   revenue: number;
+  /** Riktiga agenter via backend (server/) i stället för simulering. */
+  live?: boolean;
 }
 
 export interface Agent {
@@ -30,6 +32,9 @@ export interface Task {
   stage: number;
   progress: number;
   assignee?: string;
+  error?: string;
+  queued?: boolean;
+  clips?: { title: string; file: string }[];
 }
 
 export type Panel =
@@ -38,6 +43,7 @@ export type Panel =
   | { type: 'stats' }
   | { type: 'elevator' }
   | { type: 'addBusiness' }
+  | { type: 'rules' }
   | { type: 'agent'; id: string };
 
 export interface Interactable {
@@ -47,4 +53,36 @@ export interface Interactable {
   x: number;
   z: number;
   r: number;
+}
+
+export interface ServerJob {
+  id: string;
+  url: string;
+  title: string;
+  stage: number;
+  status: 'queued' | 'working' | 'failed' | 'done';
+  progress: number;
+  error?: string;
+  clips: { title: string; file?: string; qa?: { pass: boolean; notes: string } }[];
+}
+
+export interface Health {
+  ok: boolean;
+  mock: boolean;
+  model: string;
+  anthropic: boolean;
+  ffmpeg: boolean;
+  ytdlp: boolean;
+  whisper: boolean;
+  rulesSet: boolean;
+  discordRules: boolean;
+  discordPost: boolean;
+}
+
+export interface PlatformStats {
+  platform: 'youtube' | 'tiktok' | 'instagram' | 'discord';
+  configured: boolean;
+  metrics: Record<string, number | string>;
+  error?: string;
+  hint?: string;
 }

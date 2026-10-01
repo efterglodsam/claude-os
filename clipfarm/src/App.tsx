@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Scene } from './scene/Scene';
-import { useStore } from './store';
+import { refreshInfo, refreshLive, useStore } from './store';
 import { Hud } from './ui/Hud';
 import { Panels } from './ui/Panels';
 
@@ -9,12 +9,18 @@ export default function App() {
 
   useEffect(() => {
     const id = setInterval(() => useStore.getState().tick(0.5), 500);
+    refreshLive();
+    refreshInfo();
+    const live = setInterval(refreshLive, 2000);
+    const info = setInterval(refreshInfo, 30000);
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && useStore.getState().setPanel(null);
     const onLock = () => useStore.getState().setLocked(!!document.pointerLockElement);
     window.addEventListener('keydown', onKey);
     document.addEventListener('pointerlockchange', onLock);
     return () => {
       clearInterval(id);
+      clearInterval(live);
+      clearInterval(info);
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerlockchange', onLock);
     };

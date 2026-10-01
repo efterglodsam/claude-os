@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node"], "allowImportingTsExtensions": true, "lib": ["ES2023"], "module": "ESNext" },
+  "include": ["server"]
+}

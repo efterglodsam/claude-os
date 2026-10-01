@@ -127,6 +127,14 @@ function Whiteboard({ business, tasks }: { business: Business; tasks: Task[] }) 
 }
 
 function StatsScreen({ business }: { business: Business }) {
+  const platforms = useStore((s) => s.platformStats);
+  const first = platforms.find((p) => p.configured && !p.error && Object.keys(p.metrics).length);
+  const [mk, mv] = first ? Object.entries(first.metrics)[0] : [];
+  const line3 = business.live
+    ? first
+      ? `${first.platform}: ${Number(mv).toLocaleString('sv-SE')} ${mk}`
+      : 'Koppla plattformar'
+    : `${business.revenue.toLocaleString('sv-SE')} kr`;
   return (
     <group position={[HALF_W - 3.2, 2.2, -HALF_D + 0.2]}>
       <mesh>
@@ -147,10 +155,10 @@ function StatsScreen({ business }: { business: Business }) {
         {`${business.units.toLocaleString('sv-SE')} ${business.unitLabel}`}
       </Text>
       <Text position={[0, -0.55, 0.07]} fontSize={0.17} color="#86efac">
-        {`${business.revenue.toLocaleString('sv-SE')} kr`}
+        {line3}
       </Text>
       <Text position={[0, -0.85, 0.07]} fontSize={0.07} color="#6b7280">
-        (simulerade siffror)
+        {business.live ? 'live-data' : '(simulerade siffror)'}
       </Text>
     </group>
   );

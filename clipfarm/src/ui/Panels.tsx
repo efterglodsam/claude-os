@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../api';
 import { MAX_AGENTS, useStore } from '../store';
 import { TEMPLATES } from '../templates';
+import type { Health } from '../types';
 
 function Modal({ title, children }: { title: string; children: React.ReactNode }) {
   const setPanel = useStore((s) => s.setPanel);
@@ -28,7 +30,7 @@ function Kanban() {
   const b = useCurrent();
   const tasks = useStore((s) => s.tasks).filter((t) => t.businessId === b.id);
   const agents = useStore((s) => s.agents);
-  const { addTask, startTask, startAll, removeTask } = useStore();
+  const { addTask, startTask, startAll, removeTask, retryTask } = useStore();
   const [title, setTitle] = useState('');
   return (
     <Modal title={`Kanban – ${b.name}`}>
@@ -40,7 +42,7 @@ function Kanban() {
           setTitle('');
         }}
       >
-        <input autoFocus placeholder="Nytt jobb (t.ex. länk till video eller produktidé)" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <input autoFocus placeholder={b.live ? 'Klistra in länk till hela avsnittet (YouTube m.fl.)' : 'Nytt jobb (t.ex. produktidé)'} value={title} onChange={(e) => setTitle(e.target.value)} />
         <button className="primary">Lägg till</button>
         <button type="button" onClick={() => startAll(b.id)}>
           Starta alla
@@ -59,6 +61,17 @@ function Kanban() {
                 return (
                   <div key={t.id} className={'card' + (who ? ' active' : '')}>
                     <div>{t.title}</div>
+                    {t.queued && !who && !t.error && <div className="muted">I kö…</div>}
+                    {t.error && <div className="err">{t.error}</div>}
+                    {t.clips && t.clips.length > 0 && i === b.stages.length - 1 && (
+                      <ul className="clips">
+                        {t.clips.map((c) => (
+                          <li key={c.file}>
+                            <a href={c.file} target="_blank" rel="noreferrer">{c.title}</a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {who && (
                       <div className="bar">
                         <i style={{ width: `${Math.round(t.progress * 100)}%` }} />
@@ -67,6 +80,7 @@ function Kanban() {
                     )}
                     <div className="card-actions">
                       {i === 0 && <button onClick={() => startTask(t.id)}>▶ Starta</button>}
+                      {t.error && <button onClick={() => retryTask(t.id)}>↻ Försök igen</button>}
                       <button onClick={() => removeTask(t.id)}>Ta bort</button>
                     </div>
                   </div>
@@ -74,6 +88,92 @@ function Kanban() {
               })}
           </div>
         ))}
+      </div>
+    </Modal>
+  );
+}
+
+
+const PLATFORM_NAMES: Record<string, string> = { youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram', discord: 'Discord' };
+
+function Check({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
+  return (
+    <li className={ok ? 'ok' : 'miss'}>
+      {ok ? '✓' : '✗'} {label}
+      {!ok && hint && <small> – {hint}</small>}
+    </li>
+  );
+}
+
+function LiveInfo() {
+  const { platformStats, health, serverOnline, setPanel } = useStore();
+  const h: Health | null = health;
+  return (
+    <>
+      <h3>Plattformar (live)</h3>
+      {!serverOnline && <p className="err">Backend offline – ingen live-data. Kör <code>npm run server</code>.</p>}
+      <div className="platforms">
+        {platformStats.map((p) => (
+          <div key={p.platform} className="platform">
+            <strong>{PLATFORM_NAMES[p.platform]}</strong>
+            {p.error ? (
+              <span className="err">{p.error}</span>
+            ) : p.configured ? (
+              Object.entries(p.metrics).map(([k, v]) => (
+                <span key={k}>
+                  {typeof v === 'number' ? v.toLocaleString('sv-SE') : v} <small>{k}</small>
+                </span>
+              ))
+            ) : (
+              <span className="muted">{p.hint}</span>
+            )}
+          </div>
+        ))}
+      </div>
+      <h3>Systemstatus</h3>
+      {h ? (
+        <ul className="checks">
+          <Check ok={h.anthropic || h.mock} label={h.mock ? 'Claude (MOCK-läge – inga riktiga anrop)' : `Claude API (${h.model})`} hint="sätt ANTHROPIC_API_KEY i .env" />
+          <Check ok={h.ffmpeg} label="ffmpeg" hint="installera ffmpeg" />
+          <Check ok={h.ytdlp} label="yt-dlp (hämtar video)" hint="pip install yt-dlp" />
+          <Check ok={h.rulesSet || h.mock} label="Communityts regler inlagda" hint="öppna Regler nedan" />
+          <Check ok={h.discordPost} label="Postning till Discord" hint="valfritt: DISCORD_WEBHOOK_URL" />
+        </ul>
+      ) : (
+        <p className="muted">Ingen status än.</p>
+      )}
+      <button onClick={() => setPanel({ type: 'rules' })}>🗒 Regler för clipping-communityt</button>
+    </>
+  );
+}
+
+function Rules() {
+  const { health, setPanel } = useStore();
+  const [text, setText] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    api<{ text: string }>('GET', '/api/rules').then((r) => setText(r.text)).catch((e: Error) => setMsg(e.message));
+  }, []);
+  const save = () =>
+    api('PUT', '/api/rules', { text }).then(() => setMsg('Sparat – nästa jobb använder de nya reglerna.')).catch((e: Error) => setMsg(e.message));
+  const sync = () =>
+    api<{ text: string }>('POST', '/api/rules/sync')
+      .then((r) => {
+        setText(r.text);
+        setMsg('Hämtade regler från Discord.');
+      })
+      .catch((e: Error) => setMsg(e.message));
+  return (
+    <Modal title="Regler och kriterier">
+      <p className="muted">
+        Alla agenter (Scout, QA) får hela den här texten före varje jobb. Klistra in reglerna från Discord-communityt.
+      </p>
+      <textarea className="rules" value={text} onChange={(e) => setText(e.target.value)} rows={18} />
+      <div className="row">
+        <button className="primary" onClick={save}>Spara</button>
+        {health?.discordRules && <button onClick={sync}>Hämta från Discord-kanal</button>}
+        <button onClick={() => setPanel({ type: 'stats' })}>Tillbaka</button>
+        <span className="muted">{msg}</span>
       </div>
     </Modal>
   );
@@ -91,9 +191,9 @@ function Stats() {
       <div className="tiles">
         <div><b>{b.done}</b><span>klara jobb</span></div>
         <div><b>{b.units.toLocaleString('sv-SE')}</b><span>{b.unitLabel}</span></div>
-        <div><b>{b.revenue.toLocaleString('sv-SE')} kr</b><span>intäkt</span></div>
+        {!b.live && <div><b>{b.revenue.toLocaleString('sv-SE')} kr</b><span>intäkt</span></div>}
       </div>
-      <p className="muted">Siffrorna är simulerade (intäkt per klart jobb: {b.revenuePerTask} kr). Koppla till riktig data (YouTube/TikTok/Printful/Shopify) i nästa steg.</p>
+      {b.live ? <LiveInfo /> : <p className="muted">Siffrorna är simulerade (intäkt per klart jobb: {b.revenuePerTask} kr). Den här businessen har inga riktiga agenter än.</p>}
       <h3>Agenter ({agents.length}/{MAX_AGENTS})</h3>
       <ul className="agents">
         {agents.map((a) => (
@@ -104,7 +204,7 @@ function Stats() {
           </li>
         ))}
       </ul>
-      {agents.length < MAX_AGENTS && workStages.length > 0 && (
+      {!b.live && agents.length < MAX_AGENTS && workStages.length > 0 && (
         <form
           className="row"
           onSubmit={(e) => {
@@ -235,5 +335,6 @@ export function Panels() {
     case 'agent': return <AgentPanel id={panel.id} />;
     case 'elevator': return <Elevator />;
     case 'addBusiness': return <AddBusiness />;
+    case 'rules': return <Rules />;
   }
 }

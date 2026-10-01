@@ -49,3 +49,15 @@ ul.agents li span { margin-left: auto; color: #9ca3af; font-size: 13px; }
 ul.floors li button.danger { margin-left: auto; }
 ul.floors li.current { outline: 1px solid #3b82f6; }
 li i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+.banner { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 10px; z-index: 5; max-width: 90vw; }
+.banner.bad { background: #7f1d1d; } .banner.warn { background: #78350f; cursor: pointer; }
+code { background: #0006; padding: 1px 6px; border-radius: 4px; }
+.err { color: #fca5a5; font-size: 12px; margin-top: 4px; }
+.clips { margin: 6px 0 0; padding-left: 16px; font-size: 12px; } .clips a { color: #86efac; }
+.platforms { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.platform { background: #0d1226; border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.platform small { color: #9ca3af; }
+ul.checks { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 4px; }
+ul.checks li.ok { color: #86efac; } ul.checks li.miss { color: #fca5a5; } ul.checks small { color: #9ca3af; }
+textarea.rules { width: 100%; background: #0d1226; color: inherit; border: 1px solid #34417a; border-radius: 8px; padding: 10px; font: 13px/1.5 ui-monospace, monospace; margin-bottom: 10px; }

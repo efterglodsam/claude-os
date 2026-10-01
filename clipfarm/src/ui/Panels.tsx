@@ -1,0 +1,239 @@
+import { useState } from 'react';
+import { MAX_AGENTS, useStore } from '../store';
+import { TEMPLATES } from '../templates';
+
+function Modal({ title, children }: { title: string; children: React.ReactNode }) {
+  const setPanel = useStore((s) => s.setPanel);
+  return (
+    <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && setPanel(null)}>
+      <div className="modal">
+        <header>
+          <h2>{title}</h2>
+          <button onClick={() => setPanel(null)} aria-label="Stäng">
+            ✕
+          </button>
+        </header>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function useCurrent() {
+  const { businesses, currentId } = useStore();
+  return businesses.find((b) => b.id === currentId) ?? businesses[0];
+}
+
+function Kanban() {
+  const b = useCurrent();
+  const tasks = useStore((s) => s.tasks).filter((t) => t.businessId === b.id);
+  const agents = useStore((s) => s.agents);
+  const { addTask, startTask, startAll, removeTask } = useStore();
+  const [title, setTitle] = useState('');
+  return (
+    <Modal title={`Kanban – ${b.name}`}>
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (title.trim()) addTask(b.id, title.trim());
+          setTitle('');
+        }}
+      >
+        <input autoFocus placeholder="Nytt jobb (t.ex. länk till video eller produktidé)" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <button className="primary">Lägg till</button>
+        <button type="button" onClick={() => startAll(b.id)}>
+          Starta alla
+        </button>
+      </form>
+      <div className="kanban" style={{ gridTemplateColumns: `repeat(${b.stages.length}, minmax(140px, 1fr))` }}>
+        {b.stages.map((stage, i) => (
+          <div key={stage + i} className="col">
+            <h3 style={{ color: b.color }}>
+              {stage} <small>{tasks.filter((t) => t.stage === i).length}</small>
+            </h3>
+            {tasks
+              .filter((t) => t.stage === i)
+              .map((t) => {
+                const who = agents.find((a) => a.id === t.assignee);
+                return (
+                  <div key={t.id} className={'card' + (who ? ' active' : '')}>
+                    <div>{t.title}</div>
+                    {who && (
+                      <div className="bar">
+                        <i style={{ width: `${Math.round(t.progress * 100)}%` }} />
+                        <span>{who.name}</span>
+                      </div>
+                    )}
+                    <div className="card-actions">
+                      {i === 0 && <button onClick={() => startTask(t.id)}>▶ Starta</button>}
+                      <button onClick={() => removeTask(t.id)}>Ta bort</button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function Stats() {
+  const b = useCurrent();
+  const agents = useStore((s) => s.agents).filter((a) => a.businessId === b.id);
+  const { hireAgent, setPanel } = useStore();
+  const [name, setName] = useState('');
+  const [stage, setStage] = useState(1);
+  const workStages = b.stages.map((s, i) => ({ s, i })).filter(({ i }) => i > 0 && i < b.stages.length - 1);
+  return (
+    <Modal title={`Statistik – ${b.name}`}>
+      <div className="tiles">
+        <div><b>{b.done}</b><span>klara jobb</span></div>
+        <div><b>{b.units.toLocaleString('sv-SE')}</b><span>{b.unitLabel}</span></div>
+        <div><b>{b.revenue.toLocaleString('sv-SE')} kr</b><span>intäkt</span></div>
+      </div>
+      <p className="muted">Siffrorna är simulerade (intäkt per klart jobb: {b.revenuePerTask} kr). Koppla till riktig data (YouTube/TikTok/Printful/Shopify) i nästa steg.</p>
+      <h3>Agenter ({agents.length}/{MAX_AGENTS})</h3>
+      <ul className="agents">
+        {agents.map((a) => (
+          <li key={a.id}>
+            <i style={{ background: a.color }} />
+            <button className="link" onClick={() => setPanel({ type: 'agent', id: a.id })}>{a.name}</button>
+            <span>{b.stages[a.stage]} · {a.taskId ? 'jobbar' : 'väntar'}</span>
+          </li>
+        ))}
+      </ul>
+      {agents.length < MAX_AGENTS && workStages.length > 0 && (
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            hireAgent(b.id, name, stage);
+            setName('');
+          }}
+        >
+          <input placeholder="Namn på ny agent" value={name} onChange={(e) => setName(e.target.value)} />
+          <select value={stage} onChange={(e) => setStage(Number(e.target.value))}>
+            {workStages.map(({ s, i }) => (
+              <option key={i} value={i}>{s}</option>
+            ))}
+          </select>
+          <button className="primary">Anställ</button>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+function AgentPanel({ id }: { id: string }) {
+  const agent = useStore((s) => s.agents.find((a) => a.id === id));
+  const b = useCurrent();
+  const task = useStore((s) => s.tasks.find((t) => t.id === agent?.taskId));
+  const { updateAgent, fireAgent } = useStore();
+  if (!agent) return null;
+  return (
+    <Modal title={agent.name}>
+      <p>Roll: <b>{b.stages[agent.stage]}</b> → {b.stages[agent.stage + 1]}</p>
+      <p>Just nu: {task ? <b>{task.title} ({Math.round(task.progress * 100)}%)</b> : 'väntar på jobb'}</p>
+      <div className="row">
+        <input value={agent.name} onChange={(e) => updateAgent(id, { name: e.target.value })} />
+        <label>
+          Hastighet {agent.speed.toFixed(1)}×
+          <input type="range" min="0.5" max="3" step="0.5" value={agent.speed} onChange={(e) => updateAgent(id, { speed: Number(e.target.value) })} />
+        </label>
+      </div>
+      <button className="danger" onClick={() => fireAgent(id)}>Avsluta anställning</button>
+    </Modal>
+  );
+}
+
+function Elevator() {
+  const { businesses, currentId, goTo, setPanel, removeBusiness } = useStore();
+  return (
+    <Modal title="Hiss – välj våning">
+      <ul className="floors">
+        {[...businesses].reverse().map((b) => (
+          <li key={b.id} className={b.id === currentId ? 'current' : ''}>
+            <i style={{ background: b.color }} />
+            <button
+              className="link"
+              onClick={() => {
+                goTo(b.id);
+                setPanel(null);
+              }}
+            >
+              Våning {businesses.indexOf(b) + 1}: {b.name}
+            </button>
+            {businesses.length > 1 && (
+              <button className="danger small" onClick={() => confirm(`Ta bort ${b.name} och alla dess jobb/agenter?`) && removeBusiness(b.id)}>
+                Ta bort
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <button className="primary" onClick={() => setPanel({ type: 'addBusiness' })}>+ Ny business</button>
+    </Modal>
+  );
+}
+
+function AddBusiness() {
+  const { addBusiness, setPanel } = useStore();
+  const [name, setName] = useState('');
+  const [template, setTemplate] = useState('pod');
+  const [color, setColor] = useState(TEMPLATES.pod.color);
+  const [revenue, setRevenue] = useState(TEMPLATES.pod.revenuePerTask);
+  const [stages, setStages] = useState('Idé, Arbete, Granskning, Klart');
+  const pick = (t: string) => {
+    setTemplate(t);
+    setColor(TEMPLATES[t].color);
+    setRevenue(TEMPLATES[t].revenuePerTask);
+  };
+  const customStages = stages.split(',').map((s) => s.trim()).filter(Boolean);
+  const invalid = !name.trim() || (template === 'custom' && customStages.length < 3);
+  return (
+    <Modal title="Ny business">
+      <form
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (invalid) return;
+          addBusiness({ name: name.trim(), template, color, revenuePerTask: revenue, customStages });
+          setPanel(null);
+        }}
+      >
+        <label>Namn<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="t.ex. POD Store" /></label>
+        <label>Mall
+          <select value={template} onChange={(e) => pick(e.target.value)}>
+            {Object.entries(TEMPLATES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
+          </select>
+        </label>
+        {template === 'custom' ? (
+          <label>Steg i flödet (kommaseparerade, minst 3 – första är inkorg, sista är klart)
+            <input value={stages} onChange={(e) => setStages(e.target.value)} />
+          </label>
+        ) : (
+          <p className="muted">Flöde: {TEMPLATES[template].stages.join(' → ')}</p>
+        )}
+        <div className="row">
+          <label>Färg<input type="color" value={color} onChange={(e) => setColor(e.target.value)} /></label>
+          <label>Intäkt per klart jobb (kr)<input type="number" min="0" value={revenue} onChange={(e) => setRevenue(Number(e.target.value))} /></label>
+        </div>
+        <button className="primary" disabled={invalid}>Skapa våning</button>
+      </form>
+    </Modal>
+  );
+}
+
+export function Panels() {
+  const panel = useStore((s) => s.panel);
+  if (!panel) return null;
+  switch (panel.type) {
+    case 'kanban': return <Kanban />;
+    case 'stats': return <Stats />;
+    case 'agent': return <AgentPanel id={panel.id} />;
+    case 'elevator': return <Elevator />;
+    case 'addBusiness': return <AddBusiness />;
+  }
+}

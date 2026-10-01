@@ -1,0 +1,51 @@
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; background: #070a16; color: #e5e7eb; font-family: system-ui, sans-serif; overflow: hidden; }
+canvas { display: block; }
+button, input, select { font: inherit; }
+button { background: #1f2a4d; color: inherit; border: 1px solid #34417a; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { background: #2a3868; }
+button.primary { background: #2563eb; border-color: #3b82f6; }
+button.danger { background: #7f1d1d; border-color: #b91c1c; }
+button.small { padding: 2px 8px; font-size: 12px; }
+button.link { background: none; border: none; padding: 0; text-decoration: underline; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+input, select { background: #0d1226; color: inherit; border: 1px solid #34417a; border-radius: 8px; padding: 6px 10px; }
+kbd { background: #fbbf24; color: #111; border-radius: 4px; padding: 1px 6px; font-weight: 700; }
+
+.hud-top { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; pointer-events: none; }
+.hud-top > * { pointer-events: auto; }
+.hud-title { background: #0d1226cc; border-left: 4px solid; padding: 8px 14px; border-radius: 8px; display: flex; flex-direction: column; }
+.hud-title span { font-size: 12px; color: #9ca3af; }
+.hud-buttons { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+.hud-center, .hud-prompt { position: fixed; left: 50%; transform: translateX(-50%); background: #0d1226dd; padding: 10px 18px; border-radius: 10px; pointer-events: none; }
+.hud-center { top: 45%; font-size: 18px; }
+.hud-prompt { bottom: 70px; font-size: 17px; }
+.hud-help { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #9ca3af; pointer-events: none; text-align: center; }
+
+.backdrop { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; padding: 16px; z-index: 10; }
+.modal { background: #111936; border: 1px solid #34417a; border-radius: 14px; padding: 18px; width: min(1100px, 100%); max-height: 90vh; overflow: auto; }
+.modal header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.modal h2 { margin: 0; } .modal h3 { margin: 14px 0 8px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
+.row input:not([type=range]):not([type=color]) { flex: 1; min-width: 200px; }
+.form { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.form label, .row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #9ca3af; }
+.muted { color: #9ca3af; font-size: 13px; }
+.kanban { display: grid; gap: 10px; }
+.col { background: #0d1226; border-radius: 10px; padding: 8px; min-height: 160px; }
+.col h3 { margin: 0 0 8px; font-size: 14px; } .col h3 small { color: #9ca3af; }
+.card { background: #1f2a4d; border-radius: 8px; padding: 8px; margin-bottom: 8px; font-size: 13px; }
+.card.active { background: #14532d; }
+.card-actions { display: flex; gap: 6px; margin-top: 6px; } .card-actions button { padding: 2px 8px; font-size: 12px; }
+.bar { position: relative; height: 16px; background: #0006; border-radius: 6px; margin-top: 6px; overflow: hidden; }
+.bar i { position: absolute; inset: 0 auto 0 0; background: #22c55e; }
+.bar span { position: relative; font-size: 11px; padding-left: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tiles div { background: #0d1226; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; }
+.tiles b { font-size: 24px; } .tiles span { color: #9ca3af; font-size: 13px; }
+ul.agents, ul.floors { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+ul.agents li, ul.floors li { display: flex; align-items: center; gap: 10px; background: #0d1226; border-radius: 8px; padding: 8px 12px; }
+ul.agents li span { margin-left: auto; color: #9ca3af; font-size: 13px; }
+ul.floors li button.danger { margin-left: auto; }
+ul.floors li.current { outline: 1px solid #3b82f6; }
+li i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }

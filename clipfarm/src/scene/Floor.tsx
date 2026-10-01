@@ -2,7 +2,7 @@ import { Text } from './Text';
 import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
 import type { Group } from 'three';
-import { deskPosition, useStore } from '../store';
+import { defaultCeo, deskPosition, useStore } from '../store';
 import type { Agent, Business, Task } from '../types';
 import { FLOOR_H, HALF_D, HALF_W } from './constants';
 
@@ -81,6 +81,60 @@ function Desk({ agent, task, index }: { agent: Agent; task?: Task; index: number
         </mesh>
         <Worker color={agent.color} working={working} />
       </group>
+    </group>
+  );
+}
+
+function CeoDesk({ business, index }: { business: Business; index: number }) {
+  const ceo = useStore((s) => s.ceo[business.id]) ?? defaultCeo(index);
+  const busy = useStore((s) => !!s.ceoBusy[business.id]);
+  const pending = ceo.proposals.length;
+  const status = busy ? 'Tänker…' : pending ? `${pending} förslag väntar` : 'Redo';
+  return (
+    <group position={[10.4, 0, 2.6]}>
+      <mesh position={[0, 0.74, 0]}>
+        <boxGeometry args={[2.2, 0.1, 1.2]} />
+        <meshStandardMaterial color="#5b4a1a" />
+      </mesh>
+      {[-1, 1].map((s) => (
+        <mesh key={s} position={[s * 1, 0.37, 0]}>
+          <boxGeometry args={[0.1, 0.74, 1]} />
+          <meshStandardMaterial color="#3f3312" />
+        </mesh>
+      ))}
+      <mesh position={[0, 1.25, -0.2]}>
+        <boxGeometry args={[1.3, 0.75, 0.05]} />
+        <meshStandardMaterial color="#05070f" />
+      </mesh>
+      <mesh position={[0, 1.25, -0.17]}>
+        <planeGeometry args={[1.22, 0.67]} />
+        <meshStandardMaterial color="#2b2208" emissive={pending ? '#f59e0b' : busy ? '#fbbf24' : '#78560f'} emissiveIntensity={pending || busy ? 0.6 : 0.25} />
+      </mesh>
+      <Text position={[0, 1.4, -0.15]} fontSize={0.12} color="#fde68a" maxWidth={1.15}>
+        {`CEO ${ceo.name}`}
+      </Text>
+      <Text position={[0, 1.2, -0.15]} fontSize={0.085} color={pending ? '#fbbf24' : '#d1d5db'} maxWidth={1.15}>
+        {status}
+      </Text>
+      <group position={[0, 0, -1]}>
+        <mesh position={[0, 0.4, 0]}>
+          <boxGeometry args={[0.6, 0.08, 0.6]} />
+          <meshStandardMaterial color="#111827" />
+        </mesh>
+        <mesh position={[0, 0.85, 0]}>
+          <capsuleGeometry args={[0.25, 0.45, 4, 10]} />
+          <meshStandardMaterial color="#d4a017" />
+        </mesh>
+        <mesh position={[0, 1.4, 0]}>
+          <sphereGeometry args={[0.21, 16, 16]} />
+          <meshStandardMaterial color="#f1d3b3" />
+        </mesh>
+        <mesh position={[0, 1.65, 0]}>
+          <cylinderGeometry args={[0.14, 0.18, 0.12, 8]} />
+          <meshStandardMaterial color="#fbbf24" emissive="#f59e0b" emissiveIntensity={0.4} />
+        </mesh>
+      </group>
+      <pointLight position={[0, 2.5, 0]} intensity={8} distance={6} color="#fbbf24" />
     </group>
   );
 }
@@ -234,6 +288,7 @@ export function Floor({ business, index, isLast }: { business: Business; index: 
       <Whiteboard business={business} tasks={tasks} />
       <StatsScreen business={business} />
       <Elevator />
+      <CeoDesk business={business} index={index} />
       {agents.map((a, i) => (
         <Desk key={a.id} agent={a} index={i} task={tasks.find((t) => t.id === a.taskId)} />
       ))}

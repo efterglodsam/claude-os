@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { MAX_AGENTS, useStore } from '../store';
+import { runCeo } from '../ceo';
+import { defaultCeo, MAX_AGENTS, useStore } from '../store';
 import { TEMPLATES } from '../templates';
 import type { Health } from '../types';
 
@@ -61,7 +62,10 @@ function Kanban() {
                 return (
                   <div key={t.id} className={'card' + (who ? ' active' : '')}>
                     <div>{t.title}</div>
-                    {t.queued && !who && !t.error && <div className="muted">I kö…</div>}
+                    {t.delegatedTo && !who && (
+                      <div className="muted">→ delegerat till {agents.find((a) => a.id === t.delegatedTo)?.name ?? '?'}</div>
+                    )}
+                    {t.queued && !who && !t.error && !t.delegatedTo && <div className="muted">I kö…</div>}
                     {t.error && <div className="err">{t.error}</div>}
                     {t.clips && t.clips.length > 0 && i === b.stages.length - 1 && (
                       <ul className="clips">
@@ -204,7 +208,7 @@ function Stats() {
           </li>
         ))}
       </ul>
-      {!b.live && agents.length < MAX_AGENTS && workStages.length > 0 && (
+      {agents.length < MAX_AGENTS && workStages.length > 0 && (
         <form
           className="row"
           onSubmit={(e) => {
@@ -244,6 +248,85 @@ function AgentPanel({ id }: { id: string }) {
         </label>
       </div>
       <button className="danger" onClick={() => fireAgent(id)}>Avsluta anställning</button>
+    </Modal>
+  );
+}
+
+
+function CeoPanel() {
+  const b = useCurrent();
+  const store = useStore();
+  const { serverOnline, health, resolveProposal, patchCeo } = store;
+  const ceo = store.ceo[b.id] ?? defaultCeo(store.businesses.indexOf(b));
+  const busy = !!store.ceoBusy[b.id];
+  const [msg, setMsg] = useState('');
+  const canThink = serverOnline && (health?.anthropic || health?.mock);
+  const send = () => {
+    const m = msg.trim();
+    if (!m) return;
+    setMsg('');
+    runCeo(b.id, m);
+  };
+  return (
+    <Modal title={`CEO ${ceo.name} – ${b.name}`}>
+      {!canThink && (
+        <p className="err">
+          CEO:n kan inte tänka just nu: {serverOnline ? 'ANTHROPIC_API_KEY saknas i backend (.env).' : 'backend är offline (npm run server).'}
+        </p>
+      )}
+      <p className="muted">
+        CEO:n ser hela teamet och alla jobb, delegerar jobb till rätt agent och föreslår nya anställningar när något steg blir flaskhals. Du godkänner anställningar{ceo.autoApprove ? ' (just nu: automatiskt)' : ''}.
+      </p>
+
+      {ceo.proposals.length > 0 && (
+        <>
+          <h3>Anställningsförslag</h3>
+          <ul className="proposals">
+            {ceo.proposals.map((p) => (
+              <li key={p.id}>
+                <div>
+                  <b>{p.name}</b> <small>i steget "{b.stages[p.stage]}"</small>
+                  <div className="muted">{p.rationale}</div>
+                </div>
+                <div className="row" style={{ margin: 0 }}>
+                  <button className="primary" onClick={() => resolveProposal(b.id, p.id, true)}>Godkänn</button>
+                  <button onClick={() => resolveProposal(b.id, p.id, false)}>Avslå</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <h3>Chatta med CEO</h3>
+      <div className="chat">
+        {ceo.chat.length === 0 && <div className="muted">Fråga om läget, be CEO:n prioritera, anställa eller omfördela.</div>}
+        {ceo.chat.map((m, i) => (
+          <div key={i} className={'msg ' + m.role}>{m.text}</div>
+        ))}
+        {busy && <div className="msg ceo muted">CEO:n tänker…</div>}
+      </div>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <input placeholder="Skriv till CEO:n…" value={msg} onChange={(e) => setMsg(e.target.value)} disabled={!canThink} />
+        <button className="primary" disabled={!canThink || busy}>Skicka</button>
+        <button type="button" disabled={!canThink || busy} onClick={() => runCeo(b.id)}>Gör genomgång nu</button>
+      </form>
+
+      <h3>Logg</h3>
+      <ul className="log">
+        {ceo.log.length === 0 && <li className="muted">Inget har hänt än.</li>}
+        {[...ceo.log].reverse().slice(0, 12).map((l, i) => (
+          <li key={i}><small>{new Date(l.t).toLocaleTimeString('sv-SE')}</small> {l.text}</li>
+        ))}
+      </ul>
+
+      <h3>Inställningar</h3>
+      <div className="settings">
+        <label><input type="checkbox" checked={ceo.auto} onChange={(e) => patchCeo(b.id, { auto: e.target.checked })} /> CEO:n gör egna genomgångar när jobb köar (kostar Claude-anrop)</label>
+        <label><input type="checkbox" checked={ceo.autoApprove} onChange={(e) => patchCeo(b.id, { autoApprove: e.target.checked })} /> Anställ automatiskt utan att fråga mig</label>
+        <label>Max antal agenter: <input type="number" min="1" max={MAX_AGENTS} value={ceo.maxAgents} onChange={(e) => patchCeo(b.id, { maxAgents: Math.max(1, Math.min(MAX_AGENTS, Number(e.target.value) || 1)) })} /></label>
+        <label>CEO:ns namn: <input value={ceo.name} onChange={(e) => patchCeo(b.id, { name: e.target.value })} /></label>
+      </div>
     </Modal>
   );
 }
@@ -336,5 +419,6 @@ export function Panels() {
     case 'elevator': return <Elevator />;
     case 'addBusiness': return <AddBusiness />;
     case 'rules': return <Rules />;
+    case 'ceo': return <CeoPanel />;
   }
 }

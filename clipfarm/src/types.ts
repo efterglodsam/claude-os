@@ -33,6 +33,8 @@ export interface Task {
   progress: number;
   assignee?: string;
   error?: string;
+  /** CEO:ns delegering – agent som ska ta jobbet i dess nuvarande steg. */
+  delegatedTo?: string;
   queued?: boolean;
   clips?: { title: string; file: string }[];
 }
@@ -44,10 +46,11 @@ export type Panel =
   | { type: 'elevator' }
   | { type: 'addBusiness' }
   | { type: 'rules' }
+  | { type: 'ceo' }
   | { type: 'agent'; id: string };
 
 export interface Interactable {
-  kind: 'whiteboard' | 'stats' | 'elevator' | 'desk';
+  kind: 'whiteboard' | 'stats' | 'elevator' | 'desk' | 'ceo';
   id?: string;
   label: string;
   x: number;
@@ -63,6 +66,8 @@ export interface ServerJob {
   status: 'queued' | 'working' | 'failed' | 'done';
   progress: number;
   error?: string;
+  agentId?: string;
+  delegation?: Record<string, string>;
   clips: { title: string; file?: string; qa?: { pass: boolean; notes: string } }[];
 }
 
@@ -85,4 +90,23 @@ export interface PlatformStats {
   metrics: Record<string, number | string>;
   error?: string;
   hint?: string;
+}
+
+export interface HireProposal {
+  id: string;
+  name: string;
+  stage: number;
+  rationale: string;
+}
+
+export interface CeoState {
+  name: string;
+  /** CEO gör egna genomgångar när jobb köar. */
+  auto: boolean;
+  /** Anställ utan att fråga ägaren (inom maxAgents). */
+  autoApprove: boolean;
+  maxAgents: number;
+  proposals: HireProposal[];
+  chat: { role: 'user' | 'ceo'; text: string }[];
+  log: { t: number; text: string }[];
 }

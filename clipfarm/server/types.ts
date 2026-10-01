@@ -25,6 +25,10 @@ export interface Job {
   progress: number;
   error?: string;
   createdAt: number;
+  /** Agent som just nu kör jobbet. */
+  agentId?: string;
+  /** CEO:ns delegering: steg -> agent. */
+  delegation?: Record<number, string>;
   sourceFile?: string;
   transcriptFile?: string;
   candidates: ClipCandidate[];
@@ -36,4 +40,9 @@ export interface Segment {
   start: number;
   end: number;
   text: string;
+}
+
+export interface RosterAgent {
+  id: string;
+  stage: number;
 }

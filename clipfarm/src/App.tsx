@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { ceoAutoTick } from './ceo';
 import { Scene } from './scene/Scene';
 import { refreshInfo, refreshLive, useStore } from './store';
 import { Hud } from './ui/Hud';
@@ -13,6 +14,7 @@ export default function App() {
     refreshInfo();
     const live = setInterval(refreshLive, 2000);
     const info = setInterval(refreshInfo, 30000);
+    const ceoLoop = setInterval(ceoAutoTick, 5000);
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && useStore.getState().setPanel(null);
     const onLock = () => useStore.getState().setLocked(!!document.pointerLockElement);
     window.addEventListener('keydown', onKey);
@@ -21,6 +23,7 @@ export default function App() {
       clearInterval(id);
       clearInterval(live);
       clearInterval(info);
+      clearInterval(ceoLoop);
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerlockchange', onLock);
     };

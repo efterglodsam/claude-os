@@ -1,17 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from './config.ts';
-import type { Job } from './types.ts';
+import type { Job, RosterAgent } from './types.ts';
 
 let jobs: Job[] = [];
+let roster: RosterAgent[] = [];
 
 export function loadState() {
   try {
-    jobs = JSON.parse(fs.readFileSync(paths.state, 'utf8')).jobs ?? [];
+    const raw = JSON.parse(fs.readFileSync(paths.state, 'utf8'));
+    jobs = raw.jobs ?? [];
+    roster = raw.roster ?? [];
     // Jobb som avbröts av en omstart: markera som misslyckade så de kan köras om.
     for (const j of jobs) {
       if (j.status === 'working') {
         j.status = 'failed';
+        j.agentId = undefined;
         j.error = 'Servern startades om under körning – tryck "Försök igen".';
       }
     }
@@ -22,10 +26,15 @@ export function loadState() {
 
 export function save() {
   fs.mkdirSync(path.dirname(paths.state), { recursive: true });
-  fs.writeFileSync(paths.state, JSON.stringify({ jobs }, null, 2));
+  fs.writeFileSync(paths.state, JSON.stringify({ jobs, roster }, null, 2));
 }
 
 export const allJobs = () => jobs;
+export const getRoster = () => roster;
+export function setRoster(r: RosterAgent[]) {
+  roster = r;
+  save();
+}
 export const getJob = (id: string) => jobs.find((j) => j.id === id);
 
 export function createJob(url: string): Job {

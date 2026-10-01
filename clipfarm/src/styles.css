@@ -61,3 +61,13 @@ code { background: #0006; padding: 1px 6px; border-radius: 4px; }
 ul.checks { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 4px; }
 ul.checks li.ok { color: #86efac; } ul.checks li.miss { color: #fca5a5; } ul.checks small { color: #9ca3af; }
 textarea.rules { width: 100%; background: #0d1226; color: inherit; border: 1px solid #34417a; border-radius: 8px; padding: 10px; font: 13px/1.5 ui-monospace, monospace; margin-bottom: 10px; }
+
+.badge { background: #f59e0b; color: #111; border-radius: 10px; padding: 0 7px; margin-left: 6px; font-size: 12px; font-weight: 700; }
+ul.proposals, ul.log { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+ul.proposals li { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #2b2208; border: 1px solid #78560f; border-radius: 8px; padding: 8px 12px; }
+ul.log li { font-size: 13px; background: #0d1226; border-radius: 6px; padding: 4px 10px; } ul.log small { color: #9ca3af; margin-right: 6px; }
+.chat { background: #0d1226; border-radius: 10px; padding: 10px; min-height: 80px; max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.msg { padding: 6px 10px; border-radius: 8px; max-width: 80%; font-size: 14px; white-space: pre-wrap; }
+.msg.user { align-self: flex-end; background: #1d4ed8; } .msg.ceo { align-self: flex-start; background: #3f3312; }
+.settings { display: flex; flex-direction: column; gap: 8px; } .settings label { flex-direction: row; align-items: center; gap: 8px; color: #e5e7eb; font-size: 14px; }
+.settings input[type=number] { width: 70px; } .settings input:not([type]), .settings input[type=text] { width: 160px; }

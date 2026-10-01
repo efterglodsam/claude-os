@@ -2,12 +2,18 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AGENT_COLORS, TEMPLATES } from './templates';
 import { api } from './api';
-import type { Agent, Business, Health, Interactable, Panel, PlatformStats, ServerJob, Task } from './types';
+import type { Agent, Business, CeoState, Health, HireProposal, Interactable, Panel, PlatformStats, ServerJob, Task } from './types';
 
 export const BASE_SECONDS = 8;
 export const MAX_AGENTS = 8;
 
-const uid = () => Math.random().toString(36).slice(2, 9);
+export const CEO_NAMES = ['Ada', 'Grace', 'Linus', 'Margaret', 'Alan', 'Hedy'];
+
+export function defaultCeo(index: number): CeoState {
+  return { name: CEO_NAMES[index % CEO_NAMES.length], auto: true, autoApprove: false, maxAgents: MAX_AGENTS, proposals: [], chat: [], log: [] };
+}
+
+export const uid = () => Math.random().toString(36).slice(2, 9);
 
 export interface NewBusinessInput {
   name: string;
@@ -72,7 +78,16 @@ interface State {
   health: Health | null;
   platformStats: PlatformStats[];
   notice: string | null;
+  ceo: Record<string, CeoState>;
+  ceoBusy: Record<string, boolean>;
 
+  patchCeo: (businessId: string, patch: Partial<CeoState>) => void;
+  ceoLog: (businessId: string, text: string) => void;
+  ceoChat: (businessId: string, role: 'user' | 'ceo', text: string) => void;
+  addProposals: (businessId: string, p: Omit<HireProposal, 'id'>[]) => void;
+  resolveProposal: (businessId: string, id: string, approve: boolean) => void;
+  setCeoBusy: (businessId: string, busy: boolean) => void;
+  delegateTask: (taskId: string, agentId: string) => void;
   setPanel: (p: Panel) => void;
   setNearby: (n: Interactable | null) => void;
   setLocked: (l: boolean) => void;
@@ -105,12 +120,24 @@ function remote(method: string, path: string, body?: unknown) {
     .catch((e: Error) => useStore.getState().setNotice(e.message));
 }
 
+let rosterSig = '';
+
 export async function refreshLive() {
   const st = useStore.getState();
   try {
+    const live = st.businesses.find((b) => b.live);
+    if (live) {
+      const roster = st.agents.filter((a) => a.businessId === live.id).map((a) => ({ id: a.id, stage: a.stage }));
+      const sig = JSON.stringify(roster);
+      if (sig !== rosterSig) {
+        await api('PUT', '/api/roster', { agents: roster });
+        rosterSig = sig;
+      }
+    }
     st.syncLive(await api<ServerJob[]>('GET', '/api/jobs'));
     if (!st.serverOnline) st.setServer(true);
   } catch {
+    rosterSig = '';
     if (st.serverOnline) st.setServer(false);
     else if (st.health === null) st.setServer(false);
   }
@@ -136,7 +163,43 @@ export const useStore = create<State>()(
       health: null,
       platformStats: [],
       notice: null,
+      ceo: {},
+      ceoBusy: {},
 
+      patchCeo: (id, patch) =>
+        set((s) => ({ ceo: { ...s.ceo, [id]: { ...(s.ceo[id] ?? defaultCeo(s.businesses.findIndex((b) => b.id === id))), ...patch } } })),
+      ceoLog: (id, text) => {
+        const c = get().ceo[id] ?? defaultCeo(get().businesses.findIndex((b) => b.id === id));
+        get().patchCeo(id, { log: [...c.log.slice(-39), { t: Date.now(), text }] });
+      },
+      ceoChat: (id, role, text) => {
+        const c = get().ceo[id] ?? defaultCeo(get().businesses.findIndex((b) => b.id === id));
+        get().patchCeo(id, { chat: [...c.chat.slice(-39), { role, text }] });
+      },
+      addProposals: (id, ps) => {
+        const c = get().ceo[id] ?? defaultCeo(get().businesses.findIndex((b) => b.id === id));
+        get().patchCeo(id, { proposals: [...c.proposals, ...ps.map((p) => ({ ...p, id: uid() }))] });
+      },
+      resolveProposal: (id, pid, approve) => {
+        const st = get();
+        const c = st.ceo[id];
+        const p = c?.proposals.find((x) => x.id === pid);
+        if (!c || !p) return;
+        if (approve) {
+          const count = st.agents.filter((a) => a.businessId === id).length;
+          if (count >= Math.min(c.maxAgents, MAX_AGENTS)) return set({ notice: 'Max antal agenter är nått – höj gränsen i CEO-inställningarna.' });
+          st.hireAgent(id, p.name, p.stage);
+          st.ceoLog(id, `Du godkände anställning: ${p.name}`);
+        } else st.ceoLog(id, `Du avslog anställning: ${p.name}`);
+        get().patchCeo(id, { proposals: get().ceo[id].proposals.filter((x) => x.id !== pid) });
+      },
+      setCeoBusy: (id, busy) => set((s) => ({ ceoBusy: { ...s.ceoBusy, [id]: busy } })),
+      delegateTask: (taskId, agentId) => {
+        const t = get().tasks.find((x) => x.id === taskId);
+        if (!t) return;
+        set((s) => ({ tasks: s.tasks.map((x) => (x.id === taskId ? { ...x, delegatedTo: agentId } : x)) }));
+        if (isLive(get(), t.businessId)) remote('POST', `/api/jobs/${taskId}/delegate`, { agentId });
+      },
       setPanel: (panel) => set({ panel }),
       setNearby: (nearby) => set({ nearby }),
       setLocked: (locked) => set({ locked }),
@@ -153,7 +216,7 @@ export const useStore = create<State>()(
           if (!live) return s;
           const last = live.stages.length - 1;
           const mapped: Task[] = jobs.map((j) => {
-            const agent = j.status === 'working' ? s.agents.find((a) => a.businessId === live.id && a.stage === j.stage) : undefined;
+            const agent = j.status === 'working' ? s.agents.find((a) => a.id === j.agentId) ?? s.agents.find((a) => a.businessId === live.id && a.stage === j.stage) : undefined;
             return {
               id: j.id,
               businessId: live.id,
@@ -161,6 +224,7 @@ export const useStore = create<State>()(
               stage: j.stage,
               progress: j.progress,
               assignee: agent?.id,
+              delegatedTo: j.delegation?.[j.stage],
               error: j.status === 'failed' ? j.error ?? 'Misslyckades' : undefined,
               queued: j.status === 'queued' && j.stage > 0,
               clips: j.clips
@@ -187,6 +251,7 @@ export const useStore = create<State>()(
         if (n.kind === 'whiteboard') set({ panel: { type: 'kanban' } });
         else if (n.kind === 'stats') set({ panel: { type: 'stats' } });
         else if (n.kind === 'elevator') set({ panel: { type: 'elevator' } });
+        else if (n.kind === 'ceo') set({ panel: { type: 'ceo' } });
         else if (n.kind === 'desk' && n.id) set({ panel: { type: 'agent', id: n.id } });
       },
       goTo: (currentId) => set({ currentId }),
@@ -210,6 +275,7 @@ export const useStore = create<State>()(
             agents: s.agents.filter((a) => a.businessId !== id),
             tasks: s.tasks.filter((t) => t.businessId !== id),
             currentId: s.currentId === id ? businesses[0].id : s.currentId,
+            ceo: Object.fromEntries(Object.entries(s.ceo).filter(([k]) => k !== id)),
           };
         }),
 
@@ -260,7 +326,10 @@ export const useStore = create<State>()(
           const agent = s.agents.find((a) => a.id === id);
           return {
             agents: s.agents.filter((a) => a.id !== id),
-            tasks: s.tasks.map((t) => (t.assignee === id ? { ...t, assignee: undefined, progress: 0 } : t)),
+            tasks: s.tasks.map((t) => {
+              const x = t.delegatedTo === id ? { ...t, delegatedTo: undefined } : t;
+              return x.assignee === id ? { ...x, assignee: undefined, progress: 0 } : x;
+            }),
             panel: s.panel?.type === 'agent' && agent ? null : s.panel,
           };
         }),
@@ -276,7 +345,13 @@ export const useStore = create<State>()(
             if (!b || b.live) continue;
             let task = a.taskId ? tasks.find((t) => t.id === a.taskId) : undefined;
             if (!task) {
-              task = tasks.find((t) => t.businessId === a.businessId && t.stage === a.stage && !t.assignee);
+              const open = tasks.filter((t) => t.businessId === a.businessId && t.stage === a.stage && !t.assignee);
+              task =
+                open.find((t) => t.delegatedTo === a.id) ??
+                open.find((t) => {
+                  const d = agents.find((x) => x.id === t.delegatedTo);
+                  return !d || !!d.taskId; // ej delegerat, eller delegerad agent är upptagen
+                });
               if (!task) {
                 a.taskId = undefined;
                 continue;
@@ -305,7 +380,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'clipfarm-v2',
-      partialize: (s) => ({ businesses: s.businesses, agents: s.agents, tasks: s.tasks, currentId: s.currentId }),
+      partialize: (s) => ({ businesses: s.businesses, agents: s.agents, tasks: s.tasks, currentId: s.currentId, ceo: s.ceo }),
     },
   ),
 );

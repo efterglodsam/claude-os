@@ -2,9 +2,10 @@ import express from 'express';
 import { config, paths } from './config.ts';
 import { fetchRulesFromDiscord, discordPostConfigured, discordRulesConfigured } from './discord.ts';
 import { run } from './media.ts';
-import { enqueue } from './pipeline.ts';
+import { ceoDecide, type CeoInput } from './ceo.ts';
+import { enqueue, pump } from './pipeline.ts';
 import { loadRules, rulesAreSet, saveRules } from './rules.ts';
-import { allJobs, createJob, getJob, loadState, removeJob, save } from './state.ts';
+import { allJobs, createJob, getJob, getRoster, loadState, removeJob, save, setRoster } from './state.ts';
 import { getStats } from './stats.ts';
 
 loadState();
@@ -74,6 +75,33 @@ app.delete('/api/jobs/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/roster', (_req, res) => res.json(getRoster()));
+app.put('/api/roster', (req, res) => {
+  const agents = Array.isArray(req.body?.agents) ? req.body.agents : [];
+  setRoster(agents.filter((a: any) => typeof a?.id === 'string' && Number.isInteger(a.stage)).map((a: any) => ({ id: a.id, stage: a.stage })));
+  pump();
+  res.json({ ok: true });
+});
+
+app.post('/api/jobs/:id/delegate', (req, res) => {
+  const job = getJob(req.params.id);
+  const agent = getRoster().find((a) => a.id === req.body?.agentId);
+  if (!job || !agent) return res.status(404).json({ error: 'Jobb eller agent finns inte' });
+  if (job.stage !== agent.stage) return res.status(409).json({ error: 'Agenten jobbar inte i jobbets nuvarande steg' });
+  job.delegation = { ...job.delegation, [agent.stage]: agent.id };
+  save();
+  pump();
+  res.json({ ok: true });
+});
+
+app.post('/api/ceo', async (req, res) => {
+  try {
+    res.json(await ceoDecide(req.body as CeoInput));
+  } catch (e) {
+    res.status(502).json({ error: (e as Error).message });
+  }
+});
+
 app.get('/api/rules', (_req, res) => res.json({ text: loadRules(), set: rulesAreSet() }));
 app.put('/api/rules', (req, res) => {
   saveRules(String(req.body?.text ?? ''));
@@ -94,5 +122,6 @@ app.get('/api/stats', async (_req, res) => res.json(await getStats()));
 
 app.listen(config.port, () => {
   save();
+  pump();
   console.log(`Clipfarm-server på http://localhost:${config.port}  (modell: ${config.model}${config.mock ? ', MOCK' : ''})`);
 });

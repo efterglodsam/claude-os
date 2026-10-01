@@ -1,7 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
 import { Vector3 } from 'three';
-import { deskPosition, useStore } from '../store';
+import { defaultCeo, deskPosition, useStore } from '../store';
 import type { Interactable } from '../types';
 import { EYE, FLOOR_H, HALF_D, HALF_W } from './constants';
 
@@ -22,6 +22,9 @@ function interactables(businessId: string): Interactable[] {
     { kind: 'stats', label: 'Visa statistik', x: HALF_W - 3.2, z: -6.5, r: 3 },
     { kind: 'elevator', label: 'Använd hissen', x: -HALF_W + 1.4, z: -5.5, r: 2.8 },
   ];
+  const { ceo, businesses } = useStore.getState();
+  const name = ceo[businessId]?.name ?? defaultCeo(businesses.findIndex((b) => b.id === businessId)).name;
+  list.push({ kind: 'ceo', label: `Prata med CEO ${name}`, x: 10.4, z: 3.1, r: 2.4 });
   agents
     .filter((a) => a.businessId === businessId)
     .forEach((a, i) => {

@@ -4,50 +4,78 @@ import { findHighlights, reviewClip } from './claude.ts';
 import { config } from './config.ts';
 import { discordPostConfigured, postClip } from './discord.ts';
 import { clipsDir, cutClip, fetchSource, parseSubs, transcriptText, transcribeWithWhisper, workDir } from './media.ts';
-import { allJobs, getJob, log, save } from './state.ts';
+import { allJobs, getRoster, log, save } from './state.ts';
 import type { ClipCandidate, Job, Segment } from './types.ts';
 
-const queue: string[] = [];
-let running = 0;
+/**
+ * Varje steg (1 Scout, 2 Editor, 3 QA+publicering) har lika många parallella arbetare som
+ * agenter anställda i steget. Saknas agenter i ett steg används en virtuell standardagent.
+ * Jobb som CEO delegerat till en viss agent går till den när den är ledig.
+ */
+const STAGES = [1, 2, 3];
+const busy = new Set<string>();
 
 export function enqueue(job: Job) {
   job.status = 'queued';
   job.error = undefined;
-  if (!queue.includes(job.id)) queue.push(job.id);
   save();
   pump();
 }
 
-function pump() {
-  while (running < config.maxConcurrent && queue.length) {
-    const job = getJob(queue.shift()!);
-    if (!job || job.status !== 'queued') continue;
-    running++;
-    runJob(job)
-      .catch((e) => {
-        job.status = 'failed';
-        job.error = e instanceof Error ? e.message : String(e);
-        log(job, `FEL: ${job.error}`);
-      })
-      .finally(() => {
-        running--;
-        save();
-        pump();
-      });
+function agentsFor(stage: number): string[] {
+  const ids = getRoster().filter((a) => a.stage === stage).map((a) => a.id);
+  return ids.length ? ids : [`default-${stage}`];
+}
+
+export function pump() {
+  for (const stage of STAGES) {
+    const queued = allJobs()
+      .filter((j) => j.stage === stage && j.status === 'queued')
+      .sort((a, b) => a.createdAt - b.createdAt);
+    for (const job of queued) {
+      const free = agentsFor(stage).filter((id) => !busy.has(id));
+      if (!free.length) break;
+      const wanted = job.delegation?.[stage];
+      // Delegerad agent har företräde, men en ledig agent får inte stå och vänta
+      // på en upptagen kollega – då tar en annan över.
+      const agentId = wanted && free.includes(wanted) ? wanted : free[0];
+      runStep(job, stage, agentId);
+    }
   }
 }
 
-export const activeCount = () => allJobs().filter((j) => j.status === 'working').length;
-
-function loadSegments(job: Job): Segment[] {
-  if (!job.transcriptFile) throw new Error('Transkript saknas – kör om från "Hitta klipp"');
-  return parseSubs(fs.readFileSync(job.transcriptFile, 'utf8'));
-}
-
-function setStage(job: Job, stage: number) {
-  job.stage = stage;
+function runStep(job: Job, stage: number, agentId: string) {
+  busy.add(agentId);
+  job.status = 'working';
+  job.agentId = agentId;
+  job.error = undefined;
   job.progress = 0;
   save();
+  const step = stage === 1 ? scout : stage === 2 ? edit : qaAndPublish;
+  step(job)
+    .then(() => {
+      job.agentId = undefined;
+      job.progress = 0;
+      job.stage = stage + 1;
+      job.status = job.stage >= 4 ? 'done' : 'queued';
+      if (job.status === 'done') job.progress = 1;
+    })
+    .catch((e) => {
+      job.agentId = undefined;
+      job.status = 'failed';
+      job.error = e instanceof Error ? e.message : String(e);
+      log(job, `FEL: ${job.error}`);
+    })
+    .finally(() => {
+      busy.delete(agentId);
+      save();
+      pump();
+    });
+}
+
+function loadSegments(job: Job): Segment[] {
+  if (!job.transcriptFile) throw new Error('Transkript saknas – ta bort jobbet och lägg till det igen');
+  return parseSubs(fs.readFileSync(job.transcriptFile, 'utf8'));
 }
 
 async function scout(job: Job) {
@@ -62,6 +90,7 @@ async function scout(job: Job) {
   }
   job.transcriptFile = subs;
   job.progress = 0.4;
+  save();
   const segs = parseSubs(fs.readFileSync(subs, 'utf8'));
   if (!segs.length) throw new Error('Transkriptet blev tomt');
   const duration = segs[segs.length - 1].end;
@@ -70,7 +99,6 @@ async function scout(job: Job) {
   job.candidates = validate(raw, duration, job);
   if (!job.candidates.length) throw new Error('Scout hittade inga klipp som uppfyller längd-/regelkraven');
   log(job, `Scout: ${job.candidates.length} klipp valda`);
-  setStage(job, 2);
 }
 
 function validate(raw: ClipCandidate[], duration: number, job: Job): ClipCandidate[] {
@@ -88,7 +116,7 @@ function validate(raw: ClipCandidate[], duration: number, job: Job): ClipCandida
 }
 
 async function edit(job: Job) {
-  if (!job.sourceFile) throw new Error('Källvideo saknas – kör om från "Hitta klipp"');
+  if (!job.sourceFile) throw new Error('Källvideo saknas – ta bort jobbet och lägg till det igen');
   const segs = loadSegments(job);
   job.clips = [];
   const dir = clipsDir(job.id);
@@ -99,43 +127,26 @@ async function edit(job: Job) {
     job.progress = (i + 1) / job.candidates.length;
     save();
   }
-  setStage(job, 3);
 }
 
-async function qa(job: Job) {
+async function qaAndPublish(job: Job) {
   const segs = loadSegments(job);
   for (const [i, c] of job.clips.entries()) {
-    const text = segs.filter((s) => s.end > c.start && s.start < c.end).map((s) => s.text).join(' ');
-    c.qa = await reviewClip(c, text);
-    log(job, `QA: ${c.title} → ${c.qa.pass ? 'godkänt' : 'underkänt'} (${c.qa.notes.slice(0, 120)})`);
-    job.progress = (i + 1) / job.clips.length;
+    if (!c.qa) {
+      const text = segs.filter((s) => s.end > c.start && s.start < c.end).map((s) => s.text).join(' ');
+      c.qa = await reviewClip(c, text);
+      log(job, `QA: ${c.title} → ${c.qa.pass ? 'godkänt' : 'underkänt'} (${c.qa.notes.slice(0, 120)})`);
+    }
+    job.progress = ((i + 1) / job.clips.length) * 0.6;
     save();
   }
-  if (!job.clips.some((c) => c.qa?.pass)) throw new Error('QA underkände alla klipp – se noteringar i loggen');
-  setStage(job, 4);
-}
-
-async function publish(job: Job) {
   const good = job.clips.filter((c) => c.qa?.pass);
+  if (!good.length) throw new Error('QA underkände alla klipp – se noteringar i loggen');
   for (const [i, c] of good.entries()) {
     if (c.posted || !c.file) continue;
-    const posted = await postClip(c.file, `**${c.title}**\n${c.caption}\n_Källa: ${job.title}_`);
-    c.posted = posted;
-    job.progress = (i + 1) / good.length;
+    c.posted = await postClip(c.file, `**${c.title}**\n${c.caption}\n_Källa: ${job.title}_`);
+    job.progress = 0.6 + ((i + 1) / good.length) * 0.4;
     save();
   }
   log(job, discordPostConfigured() ? 'Publicerat i Discord' : `Klart – klippen ligger i ${path.relative(process.cwd(), clipsDir(job.id))} (Discord ej konfigurerat)`);
-}
-
-async function runJob(job: Job) {
-  job.status = 'working';
-  job.error = undefined;
-  save();
-  if (job.stage <= 1) await scout(job);
-  if (job.stage === 2) await edit(job);
-  if (job.stage === 3) await qa(job);
-  if (job.stage === 4) await publish(job);
-  job.progress = 1;
-  job.status = 'done';
-  save();
 }

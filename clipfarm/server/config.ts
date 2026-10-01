@@ -14,7 +14,6 @@ export const config = {
   minClip: num(process.env.MIN_CLIP_SECONDS, 20),
   maxClip: num(process.env.MAX_CLIP_SECONDS, 90),
   maxClipsPerJob: num(process.env.MAX_CLIPS_PER_JOB, 5),
-  maxConcurrent: num(process.env.MAX_CONCURRENT_JOBS, 1),
   layout: (process.env.CLIP_LAYOUT ?? 'vertical') as 'vertical' | 'original',
   captions: process.env.CLIP_CAPTIONS !== '0',
   discord: {

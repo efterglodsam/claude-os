@@ -1,7 +1,8 @@
 import { useStore } from '../store';
 
 export function Hud() {
-  const { businesses, currentId, nearby, panel, locked, setPanel, serverOnline, notice, setNotice } = useStore();
+  const { businesses, currentId, nearby, panel, locked, setPanel, serverOnline, notice, setNotice, ceo } = useStore();
+  const pending = ceo[currentId]?.proposals.length ?? 0;
   const current = businesses.find((b) => b.id === currentId) ?? businesses[0];
   return (
     <>
@@ -13,6 +14,7 @@ export function Hud() {
           </span>
         </div>
         <div className="hud-buttons">
+          <button onClick={() => setPanel({ type: 'ceo' })}>CEO{pending > 0 && <span className="badge">{pending}</span>}</button>
           <button onClick={() => setPanel({ type: 'kanban' })}>Kanban</button>
           <button onClick={() => setPanel({ type: 'stats' })}>Statistik</button>
           <button onClick={() => setPanel({ type: 'elevator' })}>Hiss</button>
